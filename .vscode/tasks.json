@@ -1,0 +1,48 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "zig build",
+            "command": "zig",
+            "type": "shell",
+            "args": [
+                "build",
+            ],
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": "$msCompile",
+        },
+        {
+            "label": "zig dbg",
+            "command": "zig",
+            "type": "shell",
+            "args": [
+                "build",
+                "dbg",
+            ],
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": "$msCompile"
+        },
+        {
+            "label": "zig test",
+            "command": "zig",
+            "type": "shell",
+            "args": [
+                "build",
+                "test",
+            ],
+            "group": "build",
+            "presentation": {
+                "reveal": "always"
+            },
+            "problemMatcher": "$msCompile"
+        },
+    ]
+}
