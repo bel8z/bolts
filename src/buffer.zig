@@ -129,7 +129,30 @@ pub fn Buffer(comptime T: type) type {
 pub fn RingBuffer(comptime T: type) type {
     return struct {
         items: []T = &[_]T{},
-        head: usize,
-        tail: usize,
+        head: usize = 0,
+        tail: usize = 0,
+        mask: usize = 0,
+
+        const Self = @This();
+
+        pub const Error = Buffer.Error;
+
+        pub inline fn count(self: Self) usize {
+            return self.head - self.tail;
+        }
+
+        pub fn read(self: *Self) ?T {
+            if (self.count() == 0) return null;
+            const item = self.items[self.read & mask];
+            self.tail = self.tail +% 1;
+            return item;
+        }
+
+        pub fn write(self: *Self, item: T) Error!void {
+            if (self.count() == self.items.len) return Error.BufferFull;
+            self.items[self.head & mask] = item;
+            self.head = self.head +% 1;
+            return item;
+        }
     };
 }
