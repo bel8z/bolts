@@ -135,7 +135,14 @@ pub fn RingBuffer(comptime T: type) type {
 
         const Self = @This();
 
-        pub const Error = Buffer.Error;
+        pub const Error = Buffer(T).Error || error{SizeNotPowerOfTwo};
+
+        //=== Non-allocating API ===//
+
+        pub fn fromMemory(memory: []T) Error!Self {
+            if (!std.math.isPowerOfTwo(memory.len)) return Error.SizeNotPowerOfTwo;
+            return Self{ .items = memory, .mask = memory.len - 1 };
+        }
 
         pub inline fn count(self: Self) usize {
             return self.head - self.tail;
@@ -143,16 +150,41 @@ pub fn RingBuffer(comptime T: type) type {
 
         pub fn read(self: *Self) ?T {
             if (self.count() == 0) return null;
-            const item = self.items[self.read & mask];
+            const item = self.items[self.tail & self.mask];
             self.tail = self.tail +% 1;
             return item;
         }
 
         pub fn write(self: *Self, item: T) Error!void {
             if (self.count() == self.items.len) return Error.BufferFull;
-            self.items[self.head & mask] = item;
+            self.items[self.head & self.mask] = item;
             self.head = self.head +% 1;
-            return item;
         }
+
+        //=== Allocating API ===//
+
     };
+}
+
+//=== Testing ===//
+
+const expect = std.testing.expect;
+
+test "RingBuffer - Static API" {
+    var buf = [_]u32{0} ** 16;
+    var ring = try RingBuffer(u32).fromMemory(&buf);
+
+    try expect(ring.count() == 0);
+
+    try ring.write(0);
+    try ring.write(1);
+    try ring.write(2);
+
+    try expect(ring.count() == 3);
+
+    try expect(ring.read().? == 0);
+    try expect(ring.read().? == 1);
+    try expect(ring.read().? == 2);
+
+    try expect(ring.count() == 0);
 }
