@@ -125,3 +125,11 @@ pub fn Buffer(comptime T: type) type {
         }
     };
 }
+
+pub fn RingBuffer(comptime T: type) type {
+    return struct {
+        items: []T = &[_]T{},
+        head: usize,
+        tail: usize,
+    };
+}
