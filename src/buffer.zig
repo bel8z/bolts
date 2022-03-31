@@ -38,8 +38,10 @@ pub fn Buffer(comptime T: type) type {
             self.len = size;
         }
 
-        pub fn extend(self: *Self, amount: usize) Error!void {
-            try resize(self, self.items.len + amount);
+        pub fn extend(self: *Self, amount: usize) Error![]T {
+            const start = self.items.len;
+            try resize(self, start + amount);
+            return self.items[start .. start + amount];
         }
 
         pub fn shrink(self: *Self, amount: usize) void {
