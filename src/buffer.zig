@@ -1,5 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
+const assert = std.debug.assert;
 
 // TODO (Matteo): Unit tests
 
@@ -80,7 +81,7 @@ pub fn Buffer(comptime T: type) type {
 
         //=== Allocating API ===//
 
-        pub fn allocate(allocator: mem.Allocator, capacity: usize) Error!Self {
+        pub fn allocate(capacity: usize, allocator: mem.Allocator) Error!Self {
             const memory = try allocator.alloc(T, capacity);
             var self = Self{ .items = memory, .capacity = memory.len };
             self.items.len = 0;
@@ -92,7 +93,11 @@ pub fn Buffer(comptime T: type) type {
             allocator.free(self.fullSlice());
         }
 
-        pub fn ensureCapacity(self: *Self, allocator: mem.Allocator, req: usize) Error!void {
+        pub fn ensureCapacity(
+            self: *Self,
+            req: usize,
+            allocator: mem.Allocator,
+        ) Error!void {
             if (req > self.capacity) {
                 var new_cap = self.capacity * 2;
                 if (new_cap < req) new_cap = req;
@@ -103,18 +108,30 @@ pub fn Buffer(comptime T: type) type {
             }
         }
 
-        pub fn resizeAlloc(self: *Self, allocator: mem.Allocator, size: usize) Error!void {
-            try self.ensureCapacity(allocator, size);
+        pub fn resizeAlloc(
+            self: *Self,
+            size: usize,
+            allocator: mem.Allocator,
+        ) Error!void {
+            try self.ensureCapacity(size, allocator);
             try self.resize(size);
         }
 
-        pub fn extendAlloc(self: *Self, allocator: mem.Allocator, amount: usize) Error!void {
-            try resizeAlloc(self, allocator, self.items.len + amount);
+        pub fn extendAlloc(
+            self: *Self,
+            amount: usize,
+            allocator: mem.Allocator,
+        ) Error!void {
+            try self.resizeAlloc(self.items.len + amount, allocator);
         }
 
-        pub fn pushAlloc(self: *Self, allocator: mem.Allocator, item: T) Error!void {
+        pub fn pushAlloc(
+            self: *Self,
+            item: T,
+            allocator: mem.Allocator,
+        ) Error!void {
             const at = self.items.len;
-            try self.resizeAlloc(allocator, at + 1);
+            try self.resizeAlloc(at + 1, allocator);
             self.items[at] = item;
         }
 
@@ -126,11 +143,28 @@ pub fn Buffer(comptime T: type) type {
     };
 }
 
+/// Generic circular buffer
+/// Offers basic FIFO operations (pushFront/popBack) but can be also used as a 
+/// deque (pushFront/popBack).
+/// Offers optional allocating functions for dynamically growing the buffer (it 
+/// is user's responibility to be consistent with the passed allocator).
 pub fn RingBuffer(comptime T: type) type {
+
+    // NOTE (Matteo): Here I'm using a "virtual stream" technique, with the
+    // front and back indices monotonically increasing and the 'modulo size' operation
+    // used only for item access.
+    // This relies on the size being a power of 2 and unsigned wrapping on overflow
+    // (which is the standard behavior in C while Zig uses explicit operators).
+    // The deque case is a bit odd here since the indices would be decremented in
+    // that case, possibly resulting in a "strange" front-back pair.
+
+    // TODO (Matteo): Provide common ring buffer "streaming" operations
+    // (i.e. read/write of slices in FIFO order)
+
     return struct {
         items: []T = &[_]T{},
-        head: usize = 0,
-        tail: usize = 0,
+        back: usize = 0,
+        front: usize = 0,
         mask: usize = 0,
 
         const Self = @This();
@@ -145,24 +179,108 @@ pub fn RingBuffer(comptime T: type) type {
         }
 
         pub inline fn count(self: Self) usize {
-            return self.head - self.tail;
+            return self.back -% self.front;
         }
 
-        pub fn read(self: *Self) ?T {
+        pub inline fn peekFront(self: Self) ?T {
+            return if (self.count() == 0)
+                null
+            else
+                self.items[self.front & self.mask];
+        }
+
+        pub inline fn peekBack(self: Self) ?T {
+            return if (self.count() == 0)
+                null
+            else
+                self.items[(self.back -% 1) & self.mask];
+        }
+
+        pub fn clear(self: *Self) void {
+            self.front = 0;
+            self.back = 0;
+        }
+
+        // FIFO behavior
+
+        pub fn pushBack(self: *Self, item: T) Error!void {
+            if (self.count() == self.items.len) return Error.BufferFull;
+            self.items[self.back & self.mask] = item;
+            self.back = self.back +% 1;
+        }
+
+        pub fn popFront(self: *Self) ?T {
             if (self.count() == 0) return null;
-            const item = self.items[self.tail & self.mask];
-            self.tail = self.tail +% 1;
+            const item = self.items[self.front & self.mask];
+            self.front = self.front +% 1;
             return item;
         }
 
-        pub fn write(self: *Self, item: T) Error!void {
+        // Additional deque behavior
+
+        pub fn pushFront(self: *Self, item: T) Error!void {
             if (self.count() == self.items.len) return Error.BufferFull;
-            self.items[self.head & self.mask] = item;
-            self.head = self.head +% 1;
+
+            self.front = self.front -% 1;
+            self.items[self.front & self.mask] = item;
+        }
+
+        pub fn popBack(self: *Self) ?T {
+            if (self.count() == self.items.len) return Error.BufferFull;
+
+            self.back = self.back -% 1;
+            return self.items[self.back & self.mask];
         }
 
         //=== Allocating API ===//
 
+        pub fn allocate(allocator: mem.Allocator, capacity: usize) Error!Self {
+            const memory = try allocator.alloc(T, capacity);
+            errdefer allocator.free(memory);
+            return fromMemory(memory);
+        }
+
+        pub fn free(self: *Self, allocator: mem.Allocator) void {
+            self.clear();
+            allocator.free(self.items);
+        }
+
+        pub fn ensureCapacity(self: *Self, allocator: mem.Allocator, req: usize) Error!void {
+            if (!std.math.isPowerOfTwo(req)) return Error.SizeNotPowerOfTwo;
+
+            if (req > self.items.len) {
+                var new_cap = self.items.len * 2;
+                if (new_cap < req) new_cap = req;
+
+                assert(std.math.isPowerOfTwo(new_cap));
+
+                const old_mem = self.fullSlice();
+                const new_mem = try allocator.realloc(old_mem, new_cap);
+
+                assert(new_mem.len == new_cap);
+
+                self.items = new_mem;
+                self.mask = self.items.len - 1;
+            }
+        }
+
+        pub fn pushBackAlloc(
+            self: *Self,
+            item: T,
+            allocator: mem.Allocator,
+        ) Error!void {
+            try self.ensureCapacity(self.count() + 1, allocator);
+            try self.pushBack(item);
+        }
+
+        pub fn pushFrontAlloc(
+            self: *Self,
+            item: T,
+            allocator: mem.Allocator,
+        ) Error!void {
+            try self.ensureCapacity(self.count() + 1, allocator);
+            try self.pushFront(item);
+        }
     };
 }
 
@@ -170,21 +288,53 @@ pub fn RingBuffer(comptime T: type) type {
 
 const expect = std.testing.expect;
 
-test "RingBuffer - Static API" {
+test "RingBuffer - Static FIFO" {
     var buf = [_]u32{0} ** 16;
     var ring = try RingBuffer(u32).fromMemory(&buf);
 
     try expect(ring.count() == 0);
+    try expect(ring.peekFront() == null);
+    try expect(ring.peekBack() == null);
 
-    try ring.write(0);
-    try ring.write(1);
-    try ring.write(2);
+    try ring.pushBack(0);
+    try ring.pushBack(1);
+    try ring.pushBack(2);
 
     try expect(ring.count() == 3);
+    try expect(ring.peekFront().? == 0);
+    try expect(ring.peekBack().? == 2);
 
-    try expect(ring.read().? == 0);
-    try expect(ring.read().? == 1);
-    try expect(ring.read().? == 2);
+    try expect(ring.popFront().? == 0);
+    try expect(ring.popFront().? == 1);
+    try expect(ring.popFront().? == 2);
 
     try expect(ring.count() == 0);
+    try expect(ring.peekFront() == null);
+    try expect(ring.peekBack() == null);
+}
+
+test "RingBuffer - Static deque" {
+    var buf = [_]u32{0} ** 16;
+    var ring = try RingBuffer(u32).fromMemory(&buf);
+
+    try expect(ring.count() == 0);
+    try expect(ring.peekFront() == null);
+    try expect(ring.peekBack() == null);
+
+    try ring.pushBack(2);
+    try ring.pushFront(1);
+    try ring.pushBack(3);
+    try ring.pushFront(0);
+
+    try expect(ring.count() == 4);
+    try expect(ring.peekFront().? == 0);
+    try expect(ring.peekBack().? == 3);
+
+    try expect(ring.popFront().? == 0);
+    try expect(ring.popFront().? == 1);
+    try expect(ring.popFront().? == 2);
+
+    try expect(ring.count() == 1);
+    try expect(ring.peekFront().? == 3);
+    try expect(ring.peekBack().? == 3);
 }
