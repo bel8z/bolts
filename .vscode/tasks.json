@@ -4,7 +4,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "zig build",
+            "label": "Build",
             "command": "zig",
             "type": "shell",
             "args": [
@@ -12,12 +12,13 @@
             ],
             "group": "build",
             "presentation": {
-                "reveal": "always"
+                "reveal": "silent",
+                "revealProblems": "onProblem",
             },
             "problemMatcher": "$msCompile",
         },
         {
-            "label": "zig dbg",
+            "label": "Debug",
             "command": "zig",
             "type": "shell",
             "args": [
@@ -26,12 +27,13 @@
             ],
             "group": "build",
             "presentation": {
-                "reveal": "always"
+                "reveal": "silent",
+                "revealProblems": "onProblem",
             },
             "problemMatcher": "$msCompile"
         },
         {
-            "label": "zig test",
+            "label": "Test",
             "command": "zig",
             "type": "shell",
             "args": [
@@ -40,9 +42,9 @@
             ],
             "group": "build",
             "presentation": {
-                "reveal": "always"
+                "reveal": "always",
             },
-            "problemMatcher": "$msCompile"
+            "problemMatcher": "$msCompile",
         },
     ]
 }
