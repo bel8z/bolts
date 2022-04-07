@@ -13,6 +13,8 @@ pub const huge = @import("huge.zig");
 pub const Buffer = buffer.Buffer;
 pub const MemBuffer = buffer.MemBuffer;
 
+pub const task = @import("task.zig");
+
 //=== Common utilities ===//
 
 pub fn FlagsMixin(comptime FlagType: type, comptime IntType: type) type {
