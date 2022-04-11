@@ -99,6 +99,33 @@ pub fn Queue(comptime T: type) type {
     };
 }
 
+pub const Semaphore = struct {
+    impl: Impl,
+
+    const Self = @This();
+    const Impl = if (builtin.os.tag == .windows) Win32Semaphore else std.Thread.Semaphore;
+
+    pub fn init() Self {
+        return Self{
+            .impl = if (Impl == Win32Semaphore) Impl.init() else .{},
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (Impl == Win32Semaphore) {
+            self.impl.deinit();
+        }
+    }
+
+    pub fn wait(self: *Self) void {
+        self.impl.wait();
+    }
+
+    pub fn post(self: *Self) void {
+        self.impl.post();
+    }
+};
+
 const Win32Semaphore = struct {
     handle: win32.HANDLE,
 
@@ -145,7 +172,7 @@ const Win32Semaphore = struct {
 
 //=== Task dispatch queue ===//
 
-pub const TaskFn = fn (dipatcher: *Dispatcher, data: *anyopaque) void;
+pub const TaskFn = fn (dipatcher: *Dispatcher, data: *const anyopaque) void;
 
 pub const Dispatcher = struct {
     workers: []std.Thread,
@@ -157,11 +184,9 @@ pub const Dispatcher = struct {
 
     const Self = @This();
 
-    const Semaphore = if (builtin.os.tag == .windows) Win32Semaphore else std.Thread.Semaphore;
-
     const Task = struct {
         taskfn: TaskFn,
-        data: *anyopaque,
+        data: *const anyopaque,
     };
 
     pub fn init(
@@ -176,7 +201,7 @@ pub const Dispatcher = struct {
         self.allocator = allocator;
         self.running = 0;
         self.terminate = false;
-        self.sem = if (Semaphore == Win32Semaphore) Semaphore.init() else .{};
+        self.sem = Semaphore.init();
         self.queue = try Queue(Task).alloc(allocator, q);
         self.workers = try allocator.alloc(std.Thread, w);
 
@@ -201,13 +226,11 @@ pub const Dispatcher = struct {
         self.allocator.free(self.workers);
         self.queue.free(self.allocator);
 
-        if (Semaphore == Win32Semaphore) {
-            self.sem.deinit();
-        }
+        self.sem.deinit();
     }
 
-    pub fn addTask(self: *Self, taskfn: TaskFn, data: anytype) bool {
-        const task = Task{ .taskfn = taskfn, .data = @ptrCast(*anyopaque, data) };
+    pub fn addTask(self: *Self, taskfn: TaskFn, data: *const anyopaque) bool {
+        const task = Task{ .taskfn = taskfn, .data = data };
 
         if (self.queue.enqueue(task)) {
             _ = @atomicRmw(usize, &self.running, .Add, 1, .Release);
@@ -327,9 +350,9 @@ const TestTaskContext = struct {
     str: []const u8,
 };
 
-fn testTaskFn(_: *Dispatcher, data: *anyopaque) void {
-    var ctx = @ptrCast(*TestTaskContext, @alignCast(@alignOf(TestTaskContext), data));
-    std.debug.print("\n{s}\n", .{ctx.str});
+fn testTaskFn(_: *Dispatcher, data: *const anyopaque) void {
+    var str = @ptrCast([*:0]const u8, data);
+    std.debug.print("{s}\n", .{str});
 }
 
 test "Task" {
@@ -338,9 +361,29 @@ test "Task" {
     try d.init(allocator, 0, 0);
     defer d.deinit();
 
-    var ctx = TestTaskContext{ .str = "YEAH" };
+    std.debug.print("\n", .{});
 
-    if (d.addTask(testTaskFn, &ctx)) {
-        d.waitCompletion();
-    }
+    try std.testing.expect(d.addTask(testTaskFn, "String A0"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A1"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A2"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A3"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A4"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A5"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A6"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A7"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A8"));
+    try std.testing.expect(d.addTask(testTaskFn, "String A9"));
+
+    try std.testing.expect(d.addTask(testTaskFn, "String B0"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B1"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B2"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B3"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B4"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B5"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B6"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B7"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B8"));
+    try std.testing.expect(d.addTask(testTaskFn, "String B9"));
+
+    d.waitCompletion();
 }
