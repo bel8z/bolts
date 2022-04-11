@@ -99,8 +99,12 @@ pub fn Queue(comptime T: type) type {
     };
 }
 
+/// Lightweight semaphore that uses a spin wait to reduce calls into the underlying
+/// OS object.
+/// Based on https://preshing.com/20150316/semaphores-are-surprisingly-versatile
 pub const Semaphore = struct {
     impl: Impl,
+    count: i32,
 
     const Self = @This();
     const Impl = if (builtin.os.tag == .windows) Win32Semaphore else std.Thread.Semaphore;
@@ -108,6 +112,7 @@ pub const Semaphore = struct {
     pub fn init() Self {
         return Self{
             .impl = if (Impl == Win32Semaphore) Impl.init() else .{},
+            .count = 0,
         };
     }
 
@@ -118,11 +123,38 @@ pub const Semaphore = struct {
     }
 
     pub fn wait(self: *Self) void {
-        self.impl.wait();
+        var prev_count = @atomicLoad(i32, &self.count, .Monotonic);
+
+        var spin: usize = 0;
+        while (spin < 10_000) : (spin += 1) {
+            if (prev_count > 0) {
+                if (@cmpxchgStrong(
+                    i32,
+                    &self.count,
+                    prev_count,
+                    prev_count - 1,
+                    .Acquire,
+                    .Acquire,
+                )) |updated| {
+                    prev_count = updated;
+                } else {
+                    return;
+                }
+                // Prevent the compiler from collapsing the loop.
+                std.atomic.compilerFence(.Acquire);
+            }
+        }
+
+        prev_count = @atomicRmw(i32, &self.count, .Sub, 1, .Acquire);
+        if (prev_count <= 0) self.impl.wait();
     }
 
     pub fn post(self: *Self) void {
-        self.impl.post();
+        const prev_count = @atomicRmw(i32, &self.count, .Add, 1, .Release);
+        const release = if (-prev_count < 1) -prev_count else 1;
+        if (release > 0) {
+            self.impl.post();
+        }
     }
 };
 
