@@ -1,7 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const win32 = std.os.windows;
 const assert = std.debug.assert;
+
+const semaphore = @import("task/semaphore.zig");
 
 const Atomic = std.atomic.Atomic;
 
@@ -99,116 +100,13 @@ pub fn Queue(comptime T: type) type {
     };
 }
 
-/// Lightweight semaphore that uses a spin wait to reduce calls into the underlying
-/// OS object.
-/// Based on https://preshing.com/20150316/semaphores-are-surprisingly-versatile
-pub const Semaphore = struct {
-    impl: Impl,
-    count: i32,
-
-    const Self = @This();
-    const Impl = if (builtin.os.tag == .windows) Win32Semaphore else std.Thread.Semaphore;
-
-    pub fn init() Self {
-        return Self{
-            .impl = if (Impl == Win32Semaphore) Impl.init() else .{},
-            .count = 0,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        if (Impl == Win32Semaphore) {
-            self.impl.deinit();
-        }
-    }
-
-    pub fn wait(self: *Self) void {
-        var prev_count = @atomicLoad(i32, &self.count, .Monotonic);
-
-        var spin: usize = 0;
-        while (spin < 10_000) : (spin += 1) {
-            if (prev_count > 0) {
-                if (@cmpxchgStrong(
-                    i32,
-                    &self.count,
-                    prev_count,
-                    prev_count - 1,
-                    .Acquire,
-                    .Acquire,
-                )) |updated| {
-                    prev_count = updated;
-                } else {
-                    return;
-                }
-                // Prevent the compiler from collapsing the loop.
-                std.atomic.compilerFence(.Acquire);
-            }
-        }
-
-        prev_count = @atomicRmw(i32, &self.count, .Sub, 1, .Acquire);
-        if (prev_count <= 0) self.impl.wait();
-    }
-
-    pub fn post(self: *Self) void {
-        const prev_count = @atomicRmw(i32, &self.count, .Add, 1, .Release);
-        const release = if (-prev_count < 1) -prev_count else 1;
-        if (release > 0) {
-            self.impl.post();
-        }
-    }
-};
-
-const Win32Semaphore = struct {
-    handle: win32.HANDLE,
-
-    const Self = @This();
-
-    pub fn init() Self {
-        return Self{
-            .handle = CreateSemaphoreA(
-                null,
-                @intCast(i32, 0),
-                std.math.maxInt(win32.LONG),
-                null,
-            ),
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        win32.CloseHandle(self.handle);
-    }
-
-    pub fn wait(self: *Self) void {
-        win32.WaitForSingleObject(self.handle, win32.INFINITE) catch unreachable;
-    }
-
-    pub fn post(self: *Self) void {
-        var prev_count: i32 = 0;
-        const done = ReleaseSemaphore(self.handle, 1, &prev_count);
-        assert(done);
-    }
-
-    extern "kernel32" fn CreateSemaphoreA(
-        attributes: ?*anyopaque,
-        initial_count: win32.LONG,
-        maximum_count: win32.LONG,
-        name: ?[*:0]const u8,
-    ) callconv(win32.WINAPI) win32.HANDLE;
-
-    extern "kernel32" fn ReleaseSemaphore(
-        hSemaphore: win32.HANDLE,
-        lReleaseCount: win32.LONG,
-        lpPreviousCount: *win32.LONG,
-    ) callconv(win32.WINAPI) bool;
-};
-
 //=== Task dispatch queue ===//
 
 pub const TaskFn = fn (dipatcher: *Dispatcher, data: *const anyopaque) void;
 
 pub const Dispatcher = struct {
     workers: []std.Thread,
-    sem: Semaphore,
+    sem: semaphore.Semaphore,
     queue: Queue(Task),
     allocator: std.mem.Allocator,
     running: usize,
@@ -233,7 +131,7 @@ pub const Dispatcher = struct {
         self.allocator = allocator;
         self.running = 0;
         self.terminate = false;
-        self.sem = Semaphore.init();
+        self.sem = semaphore.Semaphore.init();
         self.queue = try Queue(Task).alloc(allocator, q);
         self.workers = try allocator.alloc(std.Thread, w);
 
@@ -302,53 +200,55 @@ pub const Dispatcher = struct {
 
 //=== Testing ===//
 
-const TestQueueContext = struct {
-    batch_size: usize = 1,
-    iter_count: usize = 2000_000,
-    start: Atomic(bool) = Atomic(bool).init(false),
-    queue: Queue(usize),
-};
+test "Queue" {
+    const Context = struct {
+        batch_size: usize = 1,
+        iter_count: usize = 2000_000,
+        start: Atomic(bool) = Atomic(bool).init(false),
+        queue: Queue(usize),
 
-fn testQueueFn(ctx: *TestQueueContext) void {
-    const yield = std.os.windows.kernel32.SwitchToThread;
+        const Self = @This();
 
-    const id = std.Thread.getCurrentId();
+        fn threadFn(ctx: *Self) void {
+            const yield = std.os.windows.kernel32.SwitchToThread;
 
-    const seed = @intCast(u64, std.time.milliTimestamp()) + id;
-    var prng = std.rand.DefaultPrng.init(seed);
-    var pause = 1 + prng.random().int(usize) % 1000;
+            const id = std.Thread.getCurrentId();
 
-    while (!ctx.start.load(.Acquire)) {
-        _ = yield();
-    }
+            const seed = @intCast(u64, std.time.milliTimestamp()) + id;
+            var prng = std.rand.DefaultPrng.init(seed);
+            var pause = 1 + prng.random().int(usize) % 1000;
 
-    while (pause > 1) : (pause -= 1) {
-        std.atomic.spinLoopHint();
-    }
-
-    var iter: usize = 0;
-    while (iter < ctx.iter_count) : (iter += 1) {
-        var batch: usize = undefined;
-
-        batch = 0;
-        while (batch < ctx.batch_size) : (batch += 1) {
-            while (!ctx.queue.enqueue(batch)) _ = yield();
-        }
-
-        batch = 0;
-        while (batch < ctx.batch_size) : (batch += 1) {
-            while (true) {
-                if (ctx.queue.dequeue()) |_| break;
+            while (!ctx.start.load(.Acquire)) {
                 _ = yield();
             }
-        }
-    }
-}
 
-test "Queue" {
+            while (pause > 1) : (pause -= 1) {
+                std.atomic.spinLoopHint();
+            }
+
+            var iter: usize = 0;
+            while (iter < ctx.iter_count) : (iter += 1) {
+                var batch: usize = undefined;
+
+                batch = 0;
+                while (batch < ctx.batch_size) : (batch += 1) {
+                    while (!ctx.queue.enqueue(batch)) _ = yield();
+                }
+
+                batch = 0;
+                while (batch < ctx.batch_size) : (batch += 1) {
+                    while (true) {
+                        if (ctx.queue.dequeue()) |_| break;
+                        _ = yield();
+                    }
+                }
+            }
+        }
+    };
+
     const allocator = std.testing.allocator;
 
-    var ctx = TestQueueContext{ .queue = try Queue(usize).alloc(allocator, 1024) };
+    var ctx = Context{ .queue = try Queue(usize).alloc(allocator, 1024) };
     defer ctx.queue.free(allocator);
 
     var iter: usize = 0;
@@ -358,7 +258,7 @@ test "Queue" {
 
     var threads: [4]std.Thread = undefined;
     for (threads) |*thread| {
-        thread.* = try std.Thread.spawn(.{}, testQueueFn, .{&ctx});
+        thread.* = try std.Thread.spawn(.{}, Context.threadFn, .{&ctx});
     }
 
     std.time.sleep(1000_1000);
@@ -377,10 +277,6 @@ test "Queue" {
 
     std.debug.print("{d} nanosecond per operation\n", .{freq});
 }
-
-const TestTaskContext = struct {
-    str: []const u8,
-};
 
 fn testTaskFn(_: *Dispatcher, data: *const anyopaque) void {
     var str = @ptrCast([*:0]const u8, data);
@@ -418,4 +314,8 @@ test "Task" {
     try std.testing.expect(d.addTask(testTaskFn, "String B9"));
 
     d.waitCompletion();
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }
