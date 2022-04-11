@@ -1,5 +1,12 @@
+const std = @import("std");
 const bolts = @import("bolts");
 
 pub fn main() !void {
-    _ = bolts.add(1, 2);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
+    var d: bolts.task.Dispatcher = undefined;
+    try d.init(allocator, 1, 256);
+    defer d.deinit();
 }

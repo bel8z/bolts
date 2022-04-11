@@ -14,7 +14,7 @@
             "cwd": "${workspaceFolder}/zig-out/bin",
             "environment": [],
             "console": "internalConsole",
-            "preLaunchTask": "Debug",
+            "preLaunchTask": "Build",
         },
         {
             "name": "Launch LLDB",
