@@ -6,28 +6,13 @@ const win32 = std.os.windows;
 
 const task = @import("../task.zig");
 
-pub const Semaphore = LightSemaphore;
-
-/// Lightweight semaphore that uses a spin wait to reduce calls into the underlying
-/// OS object.
+/// Lightweight semaphore that uses an atomic counter and spin waits to reduce system calls
 /// Based on https://preshing.com/20150316/semaphores-are-surprisingly-versatile
-const LightSemaphore = struct {
-    impl: Impl,
-    count: i32,
+pub const Semaphore = struct {
+    impl: std.Thread.Semaphore = .{},
+    count: i32 = 0,
 
     const Self = @This();
-    const Impl = if (builtin.os.tag == .windows) Win32Semaphore else StdSemaphore;
-
-    pub fn init() Self {
-        return Self{
-            .impl = Impl.init(),
-            .count = 0,
-        };
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.impl.deinit();
-    }
 
     pub fn wait(self: *Self) void {
         var prev_count = @atomicLoad(i32, &self.count, .Monotonic);
@@ -65,28 +50,8 @@ const LightSemaphore = struct {
     }
 };
 
-const StdSemaphore = struct {
-    sem: std.Thread.Semaphore = .{},
-
-    const Self = @This();
-
-    pub fn init() Self {
-        return Self{};
-    }
-
-    pub fn deinit(self: *Self) void {
-        _ = self;
-    }
-
-    pub fn wait(self: *Self) void {
-        self.sem.wait();
-    }
-
-    pub fn post(self: *Self) void {
-        self.sem.post();
-    }
-};
-
+/// Native Win32 semaphore
+/// Proved to be too heavyweight, kept as a reference implementation
 const Win32Semaphore = struct {
     handle: win32.HANDLE,
 
@@ -131,6 +96,7 @@ const Win32Semaphore = struct {
     ) callconv(win32.WINAPI) bool;
 };
 
+/// Lightweight mutex implemented with a semaphore and an atomic counter
 fn Benaphore(comptime Sem: type) type {
     return struct {
         contention_count: i32,
@@ -140,9 +106,13 @@ fn Benaphore(comptime Sem: type) type {
 
         pub fn init() Self {
             return Self{
-                .sem = Sem.init(),
+                .sem = if (@hasDecl(Sem, "init")) Sem.init() else .{},
                 .contention_count = 0,
             };
+        }
+
+        pub fn deinit(self: *Self) void {
+            if (@hasDecl(Sem, "init")) self.sem.deinit();
         }
 
         pub fn lock(self: *Self) void {
@@ -174,11 +144,11 @@ fn Benaphore(comptime Sem: type) type {
     };
 }
 
-test "Benaphore" {
+fn testBenaphore(comptime Sem: type) !void {
     const thread_count = 4;
     const iter_count = 400_000;
 
-    const Mutex = Benaphore(StdSemaphore);
+    const Mutex = Benaphore(Sem);
 
     const Context = struct {
         value: i32,
@@ -204,13 +174,31 @@ test "Benaphore" {
 
     var threads: [thread_count]std.Thread = undefined;
 
+    context.mutex.lock();
     for (threads) |*thread, i| {
         thread.* = try std.Thread.spawn(.{}, Context.threadFn, .{ &context, i });
     }
 
+    var timer = try std.time.Timer.start();
+
+    context.mutex.unlock();
     for (threads) |thread| {
         thread.join();
     }
 
+    std.debug.print("\nElapsed {} nanoseconds\n", .{timer.read()});
+
     try std.testing.expect(context.value == iter_count * thread_count);
+}
+
+test "Benaphore - Win32" {
+    try testBenaphore(Win32Semaphore);
+}
+
+test "Benaphore - Standard" {
+    try testBenaphore(std.Thread.Semaphore);
+}
+
+test "Benaphore - Lightweigth" {
+    try testBenaphore(Semaphore);
 }

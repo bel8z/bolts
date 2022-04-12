@@ -131,7 +131,7 @@ pub const Dispatcher = struct {
         self.allocator = allocator;
         self.running = 0;
         self.terminate = false;
-        self.sem = semaphore.Semaphore.init();
+        self.sem = .{};
         self.queue = try Queue(Task).alloc(allocator, q);
         self.workers = try allocator.alloc(std.Thread, w);
 
@@ -155,8 +155,6 @@ pub const Dispatcher = struct {
 
         self.allocator.free(self.workers);
         self.queue.free(self.allocator);
-
-        self.sem.deinit();
     }
 
     pub fn addTask(self: *Self, taskfn: TaskFn, data: *const anyopaque) bool {
