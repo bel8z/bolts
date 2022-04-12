@@ -9,6 +9,8 @@ const task = @import("../task.zig");
 /// Lightweight semaphore that uses an atomic counter and spin waits to reduce system calls
 /// Based on https://preshing.com/20150316/semaphores-are-surprisingly-versatile
 pub const Semaphore = struct {
+    // TODO: Move the std implementation directly in this struct, in order to
+    // implement 'post' with a count > 1.
     impl: std.Thread.Semaphore = .{},
     count: i32 = 0,
 
