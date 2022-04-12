@@ -131,88 +131,86 @@ const Win32Semaphore = struct {
     ) callconv(win32.WINAPI) bool;
 };
 
-const Benaphore = struct {
-    contention_count: i32,
-    sem: Semaphore,
+fn Benaphore(comptime Sem: type) type {
+    return struct {
+        contention_count: i32,
+        sem: Sem,
 
-    const Self = @This();
+        const Self = @This();
 
-    pub fn init() Self {
-        return Self{
-            .sem = Semaphore.init(),
-            .contention_count = 0,
-        };
-    }
-
-    pub fn lock(self: *Self) void {
-        if (@atomicRmw(i32, &self.contention_count, .Add, 1, .Acquire) > 0) {
-            self.sem.wait();
-        }
-    }
-
-    pub fn tryLock(self: *Self) bool {
-        if (@atomicLoad(i32, &self.contention_count, .Monotonic) != 0) {
-            return false;
+        pub fn init() Self {
+            return Self{
+                .sem = Sem.init(),
+                .contention_count = 0,
+            };
         }
 
-        return (@cmpxchgStrong(
-            i32,
-            &self.contention_count,
-            0,
-            1,
-            .Acquire,
-            .Acquire,
-        ) == null);
-    }
-
-    pub fn unlock(self: *Self) void {
-        const prev_count = @atomicRmw(i32, &self.contention_count, .Sub, 1, .Release);
-        std.debug.assert(prev_count > 0);
-        if (prev_count > 1) self.sem.post();
-    }
-};
-
-const TestContext = struct {
-    iter_count: u32 = 0,
-    value: i32 = 0,
-    mutex: Benaphore,
-
-    fn threadFn(self: *TestContext, id: usize) void {
-        std.debug.print("Thread {} started", .{id});
-
-        var iter: u32 = 0;
-        while (iter < self.iter_count) : (iter += 1) {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            self.value += 1;
-            std.debug.print("Thread {} Iter {} Value {}", .{ id, iter, self.value });
+        pub fn lock(self: *Self) void {
+            if (@atomicRmw(i32, &self.contention_count, .Add, 1, .Acquire) > 0) {
+                self.sem.wait();
+            }
         }
-    }
-};
+
+        pub fn tryLock(self: *Self) bool {
+            if (@atomicLoad(i32, &self.contention_count, .Monotonic) != 0) {
+                return false;
+            }
+
+            return (@cmpxchgStrong(
+                i32,
+                &self.contention_count,
+                0,
+                1,
+                .Acquire,
+                .Acquire,
+            ) == null);
+        }
+
+        pub fn unlock(self: *Self) void {
+            const prev_count = @atomicRmw(i32, &self.contention_count, .Sub, 1, .Release);
+            std.debug.assert(prev_count > 0);
+            if (prev_count > 1) self.sem.post();
+        }
+    };
+}
 
 test "Benaphore" {
-    const thread_count = 1;
+    const thread_count = 4;
+    const iter_count = 400_000;
 
-    var context = TestContext{
-        .iter_count = 400, // _000,
-        .mutex = Benaphore.init(),
+    const Mutex = Benaphore(StdSemaphore);
+
+    const Context = struct {
+        value: i32,
+        mutex: Mutex,
+
+        fn threadFn(self: *@This(), id: usize) void {
+            _ = id;
+
+            var iter: u32 = 0;
+            while (iter < iter_count) : (iter += 1) {
+                self.mutex.lock();
+                defer self.mutex.unlock();
+
+                self.value += 1;
+            }
+        }
     };
 
-    std.debug.print("Spawning threads", .{});
+    var context = Context{
+        .value = 0,
+        .mutex = Mutex.init(),
+    };
 
-    var threads = [_]std.Thread{} ** thread_count;
+    var threads: [thread_count]std.Thread = undefined;
+
     for (threads) |*thread, i| {
-        thread.* = try std.Thread.spawn(.{}, TestContext.threadFn, .{ &context, i });
-        std.debug.print("Spawned thread {}", .{i});
+        thread.* = try std.Thread.spawn(.{}, Context.threadFn, .{ &context, i });
     }
 
-    for (threads) |thread, i| {
+    for (threads) |thread| {
         thread.join();
-        std.debug.print("Joined thread {}", .{i});
     }
 
-    std.debug.print("Value = {}, Expected = {}", .{ context.value, context.iter_count * thread_count });
-
-    // try std.testing.expect(context.value == context.iter_count * thread_count);
+    try std.testing.expect(context.value == iter_count * thread_count);
 }
