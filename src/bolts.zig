@@ -1,4 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
+
+comptime {
+    const min_v = std.SemanticVersion.parse("0.9.0") catch unreachable;
+    std.debug.assert(min_v.order(builtin.zig_version) != .gt);
+}
 
 const buffer = @import("buffer.zig");
 
