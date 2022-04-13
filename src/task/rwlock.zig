@@ -51,13 +51,13 @@ const Win32RwLock = struct {
     extern "kernel32" fn ReleaseSRWLockShared(s: *win32.SRWLOCK) callconv(win32.WINAPI) void;
 };
 
-test "RwLock" {
+fn testRwLock(comptime Rw: type) !void {
     const thread_count: usize = 4;
     const iter_count: usize = 1_000_000;
     const shared_length: usize = 8;
 
     const Ctx = struct {
-        lock: RwLock = .{},
+        lock: Rw = .{},
         shared: [shared_length]i32 = [_]i32{0} ** shared_length,
         success: std.atomic.Atomic(bool),
 
@@ -132,4 +132,12 @@ test "RwLock" {
     std.debug.print("\nElapsed {} nanoseconds\n", .{timer.read()});
 
     try std.testing.expect(ctx.success.load(.Monotonic));
+}
+
+test "RwLock - Specialized" {
+    try testRwLock(RwLock);
+}
+
+test "RwLock - Std" {
+    try testRwLock(std.Thread.RwLock);
 }
