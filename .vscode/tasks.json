@@ -15,7 +15,7 @@
                 "reveal": "silent",
                 "revealProblems": "onProblem",
             },
-            "problemMatcher": "$msCompile",
+            "problemMatcher": "$gcc",
         },
         {
             "label": "Debug",
@@ -30,7 +30,7 @@
                 "reveal": "silent",
                 "revealProblems": "onProblem",
             },
-            "problemMatcher": "$msCompile"
+            "problemMatcher": "$gcc"
         },
         {
             "label": "Test",
@@ -44,7 +44,7 @@
             "presentation": {
                 "reveal": "always",
             },
-            "problemMatcher": "$msCompile",
+            "problemMatcher": "$gcc",
         },
     ]
 }
