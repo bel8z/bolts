@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 
 const Semaphore = @import("task/semaphore.zig").Semaphore;
 const Queue = @import("task/queue.zig").Queue;
+const RwLock = @import("task/rwlock.zig").RwLock;
 
 pub const TaskFn = fn (dipatcher: *Dispatcher, data: *const anyopaque) void;
 
