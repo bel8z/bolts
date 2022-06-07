@@ -18,6 +18,7 @@ pub const huge = @import("huge.zig");
 
 pub const Buffer = buffer.Buffer;
 pub const MemBuffer = buffer.MemBuffer;
+pub const RingBuffer = buffer.RingBuffer;
 
 pub const task = @import("task.zig");
 
