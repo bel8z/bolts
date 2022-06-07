@@ -15,7 +15,7 @@ pub const MemBuffer = Buffer(u8);
 pub fn Buffer(comptime T: type) type {
     return struct {
         items: []T = &[_]T{},
-        capacity: usize,
+        capacity: usize = 0,
 
         pub const Error = mem.Allocator.Error || error{BufferFull};
 
@@ -35,7 +35,7 @@ pub fn Buffer(comptime T: type) type {
 
         pub fn resize(self: *Self, size: usize) Error!void {
             if (size > self.capacity) return Error.BufferFull;
-            self.len = size;
+            self.items.len = size;
         }
 
         pub fn extend(self: *Self, amount: usize) Error![]T {
@@ -184,18 +184,18 @@ pub fn RingBuffer(comptime T: type) type {
             return self.back -% self.front;
         }
 
-        pub inline fn peekFront(self: Self) ?T {
+        pub inline fn peekFront(self: Self) ?*const T {
             return if (self.count() == 0)
                 null
             else
-                self.items[self.front & self.mask];
+                &self.items[self.front & self.mask];
         }
 
-        pub inline fn peekBack(self: Self) ?T {
+        pub inline fn peekBack(self: Self) ?*const T {
             return if (self.count() == 0)
                 null
             else
-                self.items[(self.back -% 1) & self.mask];
+                &self.items[(self.back -% 1) & self.mask];
         }
 
         pub fn clear(self: *Self) void {
@@ -228,7 +228,7 @@ pub fn RingBuffer(comptime T: type) type {
         }
 
         pub fn popBack(self: *Self) ?T {
-            if (self.count() == self.items.len) return Error.BufferFull;
+            if (self.count() == self.items.len) return null;
 
             self.back = self.back -% 1;
             return self.items[self.back & self.mask];
