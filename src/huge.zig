@@ -87,6 +87,10 @@ pub const Bump = struct {
         self.allocated = 0;
     }
 
+    pub inline fn reserved(self: *const Self) usize {
+        return self.buffer.len;
+    }
+
     /// Provide the type-erased allocator implementation
     pub fn allocator(self: *Self) mem.Allocator {
         return mem.Allocator.init(self, alloc, resize, free);
