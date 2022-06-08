@@ -10,17 +10,21 @@ const buffer = @import("buffer.zig");
 
 //=== Re-exports ===//
 
-/// Coroutine utilities
-pub const coro = @import("coro.zig");
-
-/// Huge bump memory allocators
-pub const huge = @import("huge.zig");
-
 pub const Buffer = buffer.Buffer;
 pub const MemBuffer = buffer.MemBuffer;
 pub const RingBuffer = buffer.RingBuffer;
 
+/// Math utilities
+pub const math = @import("math.zig");
+
+/// Huge bump memory allocators
+pub const huge = @import("huge.zig");
+
+/// Asynchronous task dispatch
 pub const task = @import("task.zig");
+
+/// Coroutine utilities
+pub const coro = @import("coro.zig");
 
 //=== Common utilities ===//
 
