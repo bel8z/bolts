@@ -11,49 +11,56 @@ const epsSq = 1e-10;
 // TODO (Matteo):
 // * Equality (also approximate with epsilon)
 // * Shear transform
-// * Common projections (perspective, ortho)
-// * Camera matrices (LookAt, LookTo)
+// * Review camera (view) matrices (LookAt, LookTo)
 
 /// 2D Vector of 32 bit integers
-pub const Vec2I = Vec2(i32);
+pub const Vec2I = Vec2(i32, DefaultTag);
 
 /// 2D Vector of single-precision (32 bit) float values
-pub const Vec2S = Vec2(f32);
+pub const Vec2S = Vec2(f32, DefaultTag);
 
 /// 2D Vector of double -precision (64 bit) float values
-pub const Vec2D = Vec2(f64);
+pub const Vec2D = Vec2(f64, DefaultTag);
 
 /// 3D Vector of 33-bit integers
-pub const Vec3I = Vec3(i32);
+pub const Vec3I = Vec3(i32, DefaultTag);
 
 /// 3D Vector of single-precision (32 bit) float values
-pub const Vec3S = Vec3(f32);
+pub const Vec3S = Vec3(f32, DefaultTag);
 
 /// 3D Vector of double -precision (64 bit) float values
-pub const Vec3D = Vec3(f64);
+pub const Vec3D = Vec3(f64, DefaultTag);
 
 /// 4D Vector of 34-bit integers
-pub const Vec4I = Vec4(i32);
+pub const Vec4I = Vec4(i32, DefaultTag);
 
 /// 4D Vector of single-precision (32 bit) float values
-pub const Vec4S = Vec4(f32);
+pub const Vec4S = Vec4(f32, DefaultTag);
 
 /// 4D Vector of double -precision (64 bit) float values
-pub const Vec4D = Vec4(f64);
+pub const Vec4D = Vec4(f64, DefaultTag);
 
 /// 4x4 matrix of single-precision (32 bit) float values
-pub const Mat4S = Mat4(f32);
+pub const Mat4S = Mat4(f32, DefaultTag);
 
 /// 4x4 matrix of double -precision (64 bit) float values
-pub const Mat4D = Mat4(f64);
+pub const Mat4D = Mat4(f64, DefaultTag);
+
+/// Default tag struct for providing common vector types
+const DefaultTag = struct {};
 
 /// 2D vector of generic scalar values
-pub fn Vec2(comptime Scalar: type) type {
+pub fn Vec2(comptime Scalar: type, comptime Tag: type) type {
     return extern struct {
         x: Scalar,
         y: Scalar,
 
         const Self = @This();
+
+        comptime {
+            std.debug.assert(@sizeOf(Tag) == 0);
+            std.debug.assert(@sizeOf(Self) == 2 * @sizeOf(Scalar));
+        }
 
         pub usingnamespace VecMixin(Scalar, Self);
 
@@ -111,13 +118,18 @@ pub fn Vec2(comptime Scalar: type) type {
 }
 
 // 3D vector of generic scalar values
-pub fn Vec3(comptime Scalar: type) type {
+pub fn Vec3(comptime Scalar: type, comptime Tag: type) type {
     return extern struct {
         x: Scalar,
         y: Scalar,
         z: Scalar,
 
         const Self = @This();
+
+        comptime {
+            std.debug.assert(@sizeOf(Tag) == 0);
+            std.debug.assert(@sizeOf(Self) == 3 * @sizeOf(Scalar));
+        }
 
         pub usingnamespace VecMixin(Scalar, Self);
 
@@ -185,7 +197,7 @@ pub fn Vec3(comptime Scalar: type) type {
 }
 
 // 4D vector of generic scalar values
-pub fn Vec4(comptime Scalar: type) type {
+pub fn Vec4(comptime Scalar: type, comptime Tag: type) type {
     return extern struct {
         x: Scalar,
         y: Scalar,
@@ -193,6 +205,11 @@ pub fn Vec4(comptime Scalar: type) type {
         w: Scalar,
 
         const Self = @This();
+
+        comptime {
+            std.debug.assert(@sizeOf(Tag) == 0);
+            std.debug.assert(@sizeOf(Self) == 4 * @sizeOf(Scalar));
+        }
 
         pub usingnamespace VecMixin(Scalar, Self);
 
@@ -338,12 +355,17 @@ pub const ClipSpace = packed struct {
 /// 4x4 matrix of generic scalar values
 /// The chosen representation is column-major for interoperability with graphics 
 /// APIs and shader code.
-pub fn Mat4(comptime Scalar: type) type {
+pub fn Mat4(comptime Scalar: type, comptime Tag: type) type {
     return extern struct {
         elem: [4][4]Scalar,
 
         const Self = @This();
         const V = std.meta.Vector(4, Scalar);
+
+        comptime {
+            std.debug.assert(@sizeOf(Tag) == 0);
+            std.debug.assert(@sizeOf(Self) == @sizeOf([4][4]Scalar));
+        }
 
         //=== Basic construction ===//
 
@@ -373,7 +395,7 @@ pub fn Mat4(comptime Scalar: type) type {
                 [4]Scalar => {
                     return Self{ .elem = .{ a, b, c, d } };
                 },
-                Vec4(Scalar) => {
+                Vec4(Scalar, Tag) => {
                     return Self{ .elem = .{
                         .{ a.x, a.y, a.z, a.w },
                         .{ b.x, b.y, b.z, b.w },
@@ -381,7 +403,9 @@ pub fn Mat4(comptime Scalar: type) type {
                         .{ d.x, d.y, d.z, d.w },
                     } };
                 },
-                else => @compileError("Matrix initialization not implemented for " ++ @typeName(T)),
+                else => {
+                    @compileError("Matrix initialization not implemented for " ++ @typeName(T));
+                },
             }
         }
 
@@ -398,7 +422,7 @@ pub fn Mat4(comptime Scalar: type) type {
                         .{ a[3], b[3], c[3], d[3] },
                     } };
                 },
-                Vec4(Scalar) => {
+                Vec4(Scalar, Tag) => {
                     return Self{ .elem = .{
                         .{ a.x, b.x, c.x, d.x },
                         .{ a.y, b.y, c.y, d.y },
@@ -406,7 +430,9 @@ pub fn Mat4(comptime Scalar: type) type {
                         .{ a.w, b.w, c.w, d.w },
                     } };
                 },
-                else => @compileError("Matrix initialization not implemented for " ++ @typeName(T)),
+                else => {
+                    @compileError("Matrix initialization not implemented for " ++ @typeName(T));
+                },
             }
         }
 
@@ -425,9 +451,9 @@ pub fn Mat4(comptime Scalar: type) type {
             const T = @TypeOf(v);
 
             switch (T) {
-                Vec2(Scalar) => return scale(v.x, v.y, 0),
-                Vec3(Scalar) => return scale(v.x, v.y, v.z),
-                Vec4(Scalar) => return scale(v.x, v.y, v.z, v.w),
+                Vec2(Scalar, Tag) => return scale(v.x, v.y, 0),
+                Vec3(Scalar, Tag) => return scale(v.x, v.y, v.z),
+                Vec4(Scalar, Tag) => return scale(v.x, v.y, v.z, v.w),
                 else => @compileError("Type not supported " ++ @typeName(T)),
             }
         }
@@ -445,14 +471,14 @@ pub fn Mat4(comptime Scalar: type) type {
             const T = @TypeOf(v);
 
             switch (T) {
-                Vec2(Scalar) => return translation(v.x, v.y, 0),
-                Vec3(Scalar) => return translation(v.x, v.y, v.z),
-                Vec4(Scalar) => return translation(v.x, v.y, v.z),
+                Vec2(Scalar, Tag) => return translation(v.x, v.y, 0),
+                Vec3(Scalar, Tag) => return translation(v.x, v.y, v.z),
+                Vec4(Scalar, Tag) => return translation(v.x, v.y, v.z),
                 else => @compileError("Type not supported " ++ @typeName(T)),
             }
         }
 
-        pub fn rotation(axis: Vec3(Scalar), radians: Scalar) Self {
+        pub fn rotation(axis: Vec3(Scalar, Tag), radians: Scalar) Self {
             const cost = math.cos(radians);
             const sint = math.sin(radians);
             const h = (1 - cost);
@@ -518,18 +544,29 @@ pub fn Mat4(comptime Scalar: type) type {
         //=== Views ===//
 
         /// Look from 'position' towards 'target', with the given 'up' direction
-        pub fn lookAt(position: Vec3(Scalar), target: Vec3(Scalar), up: Vec3(Scalar)) Self {
+        pub fn lookAt(
+            position: Vec3(Scalar, Tag),
+            target: Vec3(Scalar, Tag),
+            up: Vec3(Scalar, Tag),
+        ) Self {
             return look(position, position.sub(target), up);
         }
 
         /// Same as 'lookAt' but uses the Y axis as the 'up' direction
-        pub fn lookAtYup(position: Vec3(Scalar), target: Vec3(Scalar)) Self {
-            return look(position, position.sub(target), Vec3(Scalar).y_axis);
+        pub fn lookAtYup(
+            position: Vec3(Scalar, Tag),
+            target: Vec3(Scalar, Tag),
+        ) Self {
+            return look(position, position.sub(target), Vec3(Scalar, Tag).y_axis);
         }
 
         /// Look from 'position' along the given 'direction', with the given 'up' direction
         /// Beware that 'direction' is positive towards 'position', not the target 
-        pub fn look(position: Vec3(Scalar), direction: Vec3(Scalar), up: Vec3(Scalar)) Self {
+        pub fn look(
+            position: Vec3(Scalar, Tag),
+            direction: Vec3(Scalar, Tag),
+            up: Vec3(Scalar, Tag),
+        ) Self {
             const z = direction.normalized();
             const x = up.cross(z).normalized();
             const y = z.cross(x);
@@ -563,7 +600,8 @@ pub fn Mat4(comptime Scalar: type) type {
         // to a LH clip space (namely OpenGL NDC)
         // TODO (Matteo): Handle different coordinate systems (i.e. clip spaces)
 
-        /// Build a symmetrical perspective projection matrix given the field of  view and aspect ratio
+        /// Build a symmetrical perspective projection matrix given the field of 
+        /// view and aspect ratio
         pub fn perspectiveFov(
             fovy: Scalar, // field of view along the y axis, in radians
             aspect: Scalar, // aspect ratio (width / height)
@@ -703,27 +741,30 @@ pub fn Mat4(comptime Scalar: type) type {
                     return out;
                 },
                 // Matrix-vector multiplication
-                Vec2(Scalar) => {
-                    return Vec2(Scalar).init(
+                Vec2(Scalar, Tag) => {
+                    return Vec2(Scalar, Tag).init(
                         self.elem[0][0] * rh.x + self.elem[1][0] * rh.y + self.elem[3][0],
                         self.elem[0][1] * rh.x + self.elem[1][1] * rh.y + self.elem[3][1],
                     );
                 },
-                Vec3(Scalar) => {
+                Vec3(Scalar, Tag) => {
                     var out = x * @splat(4, rh.x);
                     out += y * @splat(4, rh.y);
                     out += z * @splat(4, rh.z);
                     out += w;
-                    return Vec3(Scalar).init(out[0], out[1], out[2]);
+                    return Vec3(Scalar, Tag).init(out[0], out[1], out[2]);
                 },
-                Vec4(Scalar) => {
+                Vec4(Scalar, Tag) => {
                     var out = x * @splat(4, rh.x);
                     out += y * @splat(4, rh.y);
                     out += z * @splat(4, rh.z);
                     out += w * @splat(4, rh.w);
-                    return Vec4(Scalar).init(out[0], out[1], out[2], out[3]);
+                    return Vec4(Scalar, Tag).init(out[0], out[1], out[2], out[3]);
                 },
-                else => @compileError("Matrix multiplication not implemented for " ++ @typeName(@TypeOf(rh))),
+                else => {
+                    @compileError("Matrix multiplication not implemented for " ++
+                        @typeName(@TypeOf(rh)));
+                },
             }
         }
 
