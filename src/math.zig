@@ -272,8 +272,11 @@ pub fn Vec4(comptime Scalar: type, comptime Tag: type) type {
 
 /// Mixin that provides vector operations common across multiple dimensions
 /// based on specific ones (e.g. 'norm' based on 'dot') 
-fn VecMixin(comptime Scalar: type, comptime Self: type) type {
+fn VecMixin(comptime ScalarT: type, comptime Self: type) type {
     return struct {
+
+        /// Re-exported scalar type
+        pub const Scalar = ScalarT;
 
         /// Compute the squared norm of the vector
         pub inline fn normSq(v: Self) Scalar {
